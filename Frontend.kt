@@ -20,7 +20,7 @@ fun buildPage(tasks: List<Task>): String {
                     background: #f0f0f0;
                 }
 
-                /* Верхняя панель с иконкой профиля и меню */
+                /* Верхняя панель */
                 .topbar {
                     height: 48px;
                     background: #f5f5f5;
@@ -75,7 +75,7 @@ fun buildPage(tasks: List<Task>): String {
 
                 .app {
                     display: flex;
-                    height: calc(100vh - 48px); /* вычитаем высоту верхней панели */
+                    height: calc(100vh - 48px);
                 }
 
                 .board {
@@ -163,7 +163,28 @@ fun buildPage(tasks: List<Task>): String {
                     margin-top: 4px;
                 }
 
-                /* Панель подробной карточки (справа). По умолчанию скрыта */
+                /* Кнопка "+" для добавления карточки */
+                .column-add {
+                    width: 90%;
+                    margin: 4px auto 0;
+                    height: 28px;
+                    border-radius: 4px;
+                    border: 1px dashed #aaa;
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                    color: #777;
+                    font-size: 18px;
+                    cursor: pointer;
+                    opacity: 0.6;
+                }
+
+                .column-add:hover {
+                    opacity: 1;
+                    background: #f5f5f5;
+                }
+
+                /* Панель подробной карточки */
                 .details {
                     flex: 1;
                     padding: 16px;
@@ -183,7 +204,6 @@ fun buildPage(tasks: List<Task>): String {
                     box-shadow: 0 2px 4px rgba(0,0,0,0.2);
                 }
 
-                /* Цвет панели редактирования по цвету карточки */
                 .details-card-yellow {
                     background: #fff9c4;
                 }
@@ -243,6 +263,7 @@ fun buildPage(tasks: List<Task>): String {
                     font-size: 12px;
                 }
 
+                /* Контекстное меню (удаление) */
                 .context-menu {
                     position: fixed;
                     background: #ffffff;
@@ -376,9 +397,8 @@ fun buildPage(tasks: List<Task>): String {
                 </div>
             </div>
 
-            <!-- Контекстное меню для карточек -->
+            <!-- Контекстное меню (удаление) -->
             <div id="card-menu" class="context-menu">
-                <div class="context-menu-item" data-action="add">Добавить заметку</div>
                 <div class="context-menu-item" data-action="delete">Удалить заметку</div>
             </div>
 
@@ -392,14 +412,17 @@ fun buildPage(tasks: List<Task>): String {
                     var boardsDropdown = document.getElementById("boards-dropdown");
                     var boardsAdd = document.getElementById("boards-add");
                     var boardHeader = document.querySelector(".board-header");
+                    var statusRadios = document.querySelectorAll('input[name="status"]');
 
-                    // список досок (пока только default + новые)
+                    var currentDetailsCard = null;
+
+                    // список досок
                     var boards = [
                         { key: "default", name: "Моя канбан-доска" }
                     ];
                     var currentBoardKey = "default";
 
-                    // сохраняем исходное содержимое колонок default-доски
+                    // снимок стартового состояния колонок для default-доски
                     var defaultColumnsContent = {};
                     document.querySelectorAll(".column-body").forEach(function (body) {
                         var status = body.getAttribute("data-status");
@@ -408,9 +431,17 @@ fun buildPage(tasks: List<Task>): String {
                         }
                     });
 
+                    // --- вспомогательные функции ---
+
+                    function statusToColorClass(status) {
+                        if (status === "TODO" || status === "DONE") {
+                            return "yellow";
+                        }
+                        return "green";
+                    }
+
                     function setStatusRadio(status) {
-                        var radios = document.querySelectorAll('input[name="status"]');
-                        radios.forEach(function (r) {
+                        statusRadios.forEach(function (r) {
                             r.checked = (r.value === status);
                         });
                     }
@@ -448,26 +479,87 @@ fun buildPage(tasks: List<Task>): String {
                     }
 
                     function onStubClick() {
+                        currentDetailsCard = this;
                         openDetails();
                         fillDetailsFromCard(this);
                     }
 
+                    // плюсики в колонках
+                    function createAddButtonsForAllColumns() {
+                        document.querySelectorAll(".column-body").forEach(function (body) {
+                            var status = body.getAttribute("data-status");
+                            if (!status) return;
+                            if (body.querySelector(".column-add")) return;
+
+                            var btn = document.createElement("div");
+                            btn.className = "column-add";
+                            btn.textContent = "+";
+                            btn.setAttribute("data-status", status);
+                            body.insertBefore(btn, body.firstChild);
+                        });
+                    }
+
+                    function attachAddButtons() {
+                        document.querySelectorAll(".column-add").forEach(function (btn) {
+                            if (btn.dataset.clickInit === "1") return;
+                            btn.dataset.clickInit = "1";
+
+                            btn.addEventListener("click", function () {
+                                var status = this.getAttribute("data-status");
+                                var body = this.parentNode;
+                                if (!status || !body) return;
+
+                                var card = document.createElement("div");
+                                var colorClass = statusToColorClass(status);
+                                card.className = "card-stub " + colorClass;
+
+                                var today = new Date().toISOString().slice(0, 10);
+
+                                card.dataset.title = "Новая задача";
+                                card.dataset.body = "Описание новой задачи";
+                                card.dataset.status = status;
+                                card.dataset.due = today;
+                                card.dataset.participants = "";
+                                card.dataset.tags = "#новое";
+
+                                card.innerHTML =
+                                    '<div class="card-title">Новая задача</div>' +
+                                    '<div class="card-tags">#новое</div>' +
+                                    '<div class="card-date">' + today + '</div>';
+
+                                card.addEventListener("click", onStubClick);
+
+                                body.appendChild(card);
+                            });
+                        });
+                    }
+
                     function attachCardHandlers() {
-                        var stubsNow = document.querySelectorAll(".card-stub");
-                        stubsNow.forEach(function (stub) {
+                        document.querySelectorAll(".card-stub").forEach(function (stub) {
+                            if (stub.dataset.clickInit === "1") return;
+                            stub.dataset.clickInit = "1";
                             stub.addEventListener("click", onStubClick);
                         });
                     }
 
-                    attachCardHandlers(); // стартовое подключение
+                    function refreshBoardInteractions() {
+                        createAddButtonsForAllColumns();
+                        attachAddButtons();
+                        attachCardHandlers();
+                    }
 
+                    // начальная инициализация
+                    refreshBoardInteractions();
+
+                    // кнопка закрытия панели
                     if (closeBtn) {
                         closeBtn.addEventListener("click", function () {
+                            currentDetailsCard = null;
                             closeDetails();
                         });
                     }
 
-                    // Контекстное меню по правому клику
+                    // --- контекстное меню (удаление) ---
                     var currentCard = null;
 
                     document.addEventListener("contextmenu", function (e) {
@@ -483,14 +575,12 @@ fun buildPage(tasks: List<Task>): String {
                         }
                     });
 
-                    // Клик в любое место — закрыть контекстное меню
                     document.addEventListener("click", function (e) {
                         if (!e.target.closest("#card-menu")) {
                             menu.style.display = "none";
                         }
                     });
 
-                    // Обработка пунктов контекстного меню
                     menu.addEventListener("click", function (e) {
                         var item = e.target.closest(".context-menu-item");
                         if (!item || !currentCard) {
@@ -502,60 +592,65 @@ fun buildPage(tasks: List<Task>): String {
                             if (currentCard.parentNode) {
                                 currentCard.parentNode.removeChild(currentCard);
                             }
-                            currentCard = null;
-                        }
-
-                        if (action === "add") {
-                            var parent = currentCard.parentNode;
-                            var newCard = document.createElement("div");
-                            newCard.className = currentCard.className; // тот же цвет / стили
-
-                            newCard.setAttribute("data-title", "Новая задача");
-                            newCard.setAttribute("data-body", "Описание новой задачи");
-                            newCard.setAttribute("data-status", currentCard.getAttribute("data-status") || "TODO");
-                            newCard.setAttribute("data-due", new Date().toISOString().slice(0, 10));
-                            newCard.setAttribute("data-participants", "");
-                            newCard.setAttribute("data-tags", "#новое");
-
-                            newCard.innerHTML =
-                                '<div class="card-title">Новая задача</div>' +
-                                '<div class="card-tags">#новое</div>' +
-                                '<div class="card-date">' + newCard.getAttribute("data-due") + '</div>';
-
-                            newCard.addEventListener("click", onStubClick);
-
-                            if (currentCard.nextSibling) {
-                                parent.insertBefore(newCard, currentCard.nextSibling);
-                            } else {
-                                parent.appendChild(newCard);
+                            if (currentDetailsCard === currentCard) {
+                                currentDetailsCard = null;
+                                closeDetails();
                             }
+                            currentCard = null;
                         }
 
                         menu.style.display = "none";
                     });
 
-                    // Работа со списком досок
+                    // --- изменение статуса через радио-кнопки ---
+
+                    statusRadios.forEach(function (radio) {
+                        radio.addEventListener("change", function () {
+                            if (!currentDetailsCard) return;
+
+                            var newStatus = this.value;
+                            currentDetailsCard.dataset.status = newStatus;
+
+                            // смена цвета карточки
+                            currentDetailsCard.classList.remove("yellow", "green");
+                            currentDetailsCard.classList.add(statusToColorClass(newStatus));
+
+                            // перемещение карточки в нужную колонку
+                            var targetBody = document.querySelector('.column-body[data-status="' + newStatus + '"]');
+                            if (targetBody && currentDetailsCard.parentNode !== targetBody) {
+                                targetBody.appendChild(currentDetailsCard);
+                            }
+
+                            // цвет панели
+                            setDetailsColorFromCard(currentDetailsCard);
+                        });
+                    });
+
+                    // --- работа со списком досок ---
+
                     function switchBoard(boardKey) {
                         currentBoardKey = boardKey;
-                        closeDetails(); // при смене доски скрываем панель
+                        currentDetailsCard = null;
+                        closeDetails();
 
                         var board = boards.find(function (b) { return b.key === boardKey; });
                         if (board && boardHeader) {
                             boardHeader.textContent = board.name;
                         }
 
-                        var bodies = document.querySelectorAll(".column-body");
-                        bodies.forEach(function (body) {
+                        document.querySelectorAll(".column-body").forEach(function (body) {
                             var status = body.getAttribute("data-status");
+                            if (!status) return;
+
                             if (boardKey === "default") {
                                 body.innerHTML = defaultColumnsContent[status] || "";
                             } else {
-                                // новая доска — все колонки пустые
                                 body.innerHTML = "";
                             }
                         });
 
-                        attachCardHandlers(); // заново навешиваем клики на карточки, если они есть
+                        // после смены доски заново навешиваем плюсики и клики
+                        refreshBoardInteractions();
                     }
 
                     if (boardsToggle && boardsDropdown) {
@@ -566,7 +661,6 @@ fun buildPage(tasks: List<Task>): String {
                         });
                     }
 
-                    // закрытие списка досок при клике вне его
                     document.addEventListener("click", function (e) {
                         if (!e.target.closest("#boards-dropdown") &&
                             !e.target.closest("#boards-toggle")) {
@@ -574,7 +668,6 @@ fun buildPage(tasks: List<Task>): String {
                         }
                     });
 
-                    // клик по существующей доске в списке (делегирование)
                     if (boardsDropdown) {
                         boardsDropdown.addEventListener("click", function (e) {
                             var item = e.target.closest(".boards-dropdown-item");
@@ -588,7 +681,6 @@ fun buildPage(tasks: List<Task>): String {
                         });
                     }
 
-                    // Создание новой доски
                     if (boardsAdd) {
                         boardsAdd.addEventListener("click", function () {
                             var name = prompt("Введите название новой доски", "Новая доска");
@@ -602,7 +694,6 @@ fun buildPage(tasks: List<Task>): String {
                             newItem.textContent = name;
                             newItem.setAttribute("data-board-key", key);
 
-                            // вставляем новый пункт перед "Создать новую доску"
                             boardsDropdown.insertBefore(newItem, boardsAdd.parentNode ? boardsAdd : null);
 
                             switchBoard(key);
@@ -616,7 +707,7 @@ fun buildPage(tasks: List<Task>): String {
     """.trimIndent()
 }
 
-/* ----- ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ ДЛЯ КОЛОНОК И КАРТОЧЕК (Kotlin) ----- */
+/* ----- KOTLIN‑ХЕЛПЕРЫ ДЛЯ КОЛОНОК И КАРТОЧЕК ----- */
 
 private fun buildColumn(
     title: String,
