@@ -1,7 +1,11 @@
 package backend
 
 import com.sun.net.httpserver.HttpServer
+import java.io.File
 import java.net.InetSocketAddress
+import java.nio.charset.StandardCharsets
+import java.nio.file.Files
+import java.nio.file.StandardCopyOption
 import frontend.buildPage
 
 enum class Status {
@@ -11,7 +15,7 @@ enum class Status {
     DONE           // Готово
 }
 
-// Модель задачи
+// Модель задачи (как в твоём коде)
 data class Task(
     val id: Int,
     val title: String,
@@ -22,9 +26,20 @@ data class Task(
     val hashtags: String
 )
 
-// Начальный список задач (теперь var, чтобы /edit мог перезаписать)
-@Volatile
-var tasks: List<Task> = listOf(
+// Доска: ключ + имя + список задач
+data class Board(
+    val key: String,
+    var name: String,
+    var tasks: MutableList<Task>
+)
+
+// Файл долгосрочного хранения
+private val DATA_FILE = File("kanban_state.json")
+
+private val stateLock = Any()
+private val boards = LinkedHashMap<String, Board>()
+
+private fun initialDefaultTasks(): MutableList<Task> = mutableListOf(
     Task(
         id = 1,
         title = "Сделать макет главной страницы",
@@ -63,72 +78,89 @@ var tasks: List<Task> = listOf(
     )
 )
 
-private val tasksLock = Any() // на всякий случай, чтобы запись/чтение не конфликтовали
-
 fun main() {
+    loadStateOrInit()
+
     // поднимаем простой HTTP-сервер на 8080
     val server = HttpServer.create(InetSocketAddress(8080), 0)
 
     // GET /
     server.createContext("/") { exchange ->
-        // "фронтенд" генерирует HTML-страницу по списку задач
-        val snapshot = synchronized(tasksLock) { tasks }
+        val snapshot = synchronized(stateLock) {
+            val def = boards.getOrPut("default") {
+                Board("default", "Моя канбан-доска", initialDefaultTasks())
+            }
+            def.tasks.toList()
+        }
+
         val response = buildPage(snapshot)
 
         exchange.responseHeaders.add("Content-Type", "text/html; charset=utf-8")
         val bytes = response.toByteArray(Charsets.UTF_8)
         exchange.sendResponseHeaders(200, bytes.size.toLong())
-
-        exchange.responseBody.use { os ->
-            os.write(bytes)
-        }
+        exchange.responseBody.use { os -> os.write(bytes) }
     }
 
-    // POST /edit — принимает JSON и полностью перезаписывает список tasks
-    server.createContext("/edit") { exchange ->
-        // небольшой CORS-хелп (не мешает даже при same-origin)
-        exchange.responseHeaders.add("Access-Control-Allow-Origin", "*")
-        exchange.responseHeaders.add("Access-Control-Allow-Methods", "POST, OPTIONS")
-        exchange.responseHeaders.add("Access-Control-Allow-Headers", "Content-Type")
+    // GET /state  -> { boards:[ {key,name,tasks:[...]} ] }
+    server.createContext("/state") { exchange ->
+        addCors(exchange)
 
         val method = exchange.requestMethod.uppercase()
-
         if (method == "OPTIONS") {
             exchange.sendResponseHeaders(204, -1)
             exchange.close()
             return@createContext
         }
+        if (method != "GET") {
+            respondJson(exchange, 405, """{"ok":false,"error":"method_not_allowed"}""")
+            return@createContext
+        }
 
+        val json = synchronized(stateLock) { stateToJson() }
+        respondJson(exchange, 200, json)
+    }
+
+    // POST /edit — обновляет (перезаписывает) задачи конкретной доски и сохраняет в файл
+    server.createContext("/edit") { exchange ->
+        addCors(exchange)
+
+        val method = exchange.requestMethod.uppercase()
+        if (method == "OPTIONS") {
+            exchange.sendResponseHeaders(204, -1)
+            exchange.close()
+            return@createContext
+        }
         if (method != "POST") {
-            val msg = """{"ok":false,"error":"method_not_allowed"}"""
-            val bytes = msg.toByteArray(Charsets.UTF_8)
-            exchange.responseHeaders.add("Content-Type", "application/json; charset=utf-8")
-            exchange.sendResponseHeaders(405, bytes.size.toLong())
-            exchange.responseBody.use { it.write(bytes) }
+            respondJson(exchange, 405, """{"ok":false,"error":"method_not_allowed"}""")
             return@createContext
         }
 
         val body = exchange.requestBody.readBytes().toString(Charsets.UTF_8)
 
         try {
-            val newTasks = parseTasksFromEditPayload(body)
+            val req = parseEditRequest(body)
 
-            synchronized(tasksLock) {
-                tasks = newTasks
+            synchronized(stateLock) {
+                val boardKey = req.boardKey.ifBlank { "default" }
+                val boardName = req.boardName.ifBlank { if (boardKey == "default") "Моя канбан-доска" else boardKey }
+
+                val board = boards.getOrPut(boardKey) {
+                    Board(boardKey, boardName, mutableListOf())
+                }
+                // обновляем имя, если пришло
+                if (req.boardName.isNotBlank()) {
+                    board.name = req.boardName
+                }
+
+                board.tasks = req.tasks.toMutableList()
+
+                saveStateUnsafe()
             }
 
-            val msg = """{"ok":true,"count":${newTasks.size}}"""
-            val bytes = msg.toByteArray(Charsets.UTF_8)
-            exchange.responseHeaders.add("Content-Type", "application/json; charset=utf-8")
-            exchange.sendResponseHeaders(200, bytes.size.toLong())
-            exchange.responseBody.use { it.write(bytes) }
+            respondJson(exchange, 200, """{"ok":true}""")
         } catch (e: Exception) {
             val safe = (e.message ?: "bad_request").replace("\"", "'")
-            val msg = """{"ok":false,"error":"$safe"}"""
-            val bytes = msg.toByteArray(Charsets.UTF_8)
-            exchange.responseHeaders.add("Content-Type", "application/json; charset=utf-8")
-            exchange.sendResponseHeaders(400, bytes.size.toLong())
-            exchange.responseBody.use { it.write(bytes) }
+            respondJson(exchange, 400, """{"ok":false,"error":"$safe"}""")
         }
     }
 
@@ -137,26 +169,111 @@ fun main() {
     println("Канбан-доска запущена: http://localhost:8080")
 }
 
-/**
- * Ожидаемый payload от фронта:
- * {
- *   "boardKey": "...",
- *   "boardName": "...",
- *   "reason": "...",
- *   "updatedAt": "...",
- *   "tasks": [
- *     { "id": 1, "title": "...", "body": "...", "status": "TODO", "dueDate": "...", "participants": "...", "hashtags": "...", "order": 0 }
- *   ]
- * }
- */
-private fun parseTasksFromEditPayload(jsonText: String): List<Task> {
-    val root = JsonParser(jsonText).parse()
+/* ======================== PERSISTENCE ======================== */
 
-    val obj = root as? Map<*, *> ?: throw IllegalArgumentException("root_not_object")
-    val tasksAny = obj["tasks"] ?: throw IllegalArgumentException("tasks_missing")
-    val arr = tasksAny as? List<*> ?: throw IllegalArgumentException("tasks_not_array")
+private fun loadStateOrInit() {
+    synchronized(stateLock) {
+        boards.clear()
 
-    val parsed = arr.mapNotNull { item ->
+        val loaded = runCatching { loadStateFromFile(DATA_FILE) }.getOrNull()
+        if (loaded != null && loaded.isNotEmpty()) {
+            boards.putAll(loaded)
+        } else {
+            boards["default"] = Board("default", "Моя канбан-доска", initialDefaultTasks())
+            // сразу сохраним, чтобы файл появился
+            saveStateUnsafe()
+        }
+    }
+}
+
+private fun saveStateUnsafe() {
+    val json = stateToJson()
+    val tmp = File(DATA_FILE.absolutePath + ".tmp")
+    Files.writeString(tmp.toPath(), json, StandardCharsets.UTF_8)
+    try {
+        Files.move(
+            tmp.toPath(),
+            DATA_FILE.toPath(),
+            StandardCopyOption.REPLACE_EXISTING,
+            StandardCopyOption.ATOMIC_MOVE
+        )
+    } catch (_: Exception) {
+        // если ATOMIC_MOVE не поддержан
+        Files.move(tmp.toPath(), DATA_FILE.toPath(), StandardCopyOption.REPLACE_EXISTING)
+    }
+}
+
+private fun stateToJson(): String {
+    val sb = StringBuilder()
+    sb.append("{\"boards\":[")
+    var firstBoard = true
+    for ((_, b) in boards) {
+        if (!firstBoard) sb.append(",")
+        firstBoard = false
+        sb.append("{")
+        sb.append("\"key\":\"").append(jsonEscape(b.key)).append("\",")
+        sb.append("\"name\":\"").append(jsonEscape(b.name)).append("\",")
+        sb.append("\"tasks\":[")
+        var firstTask = true
+        for (t in b.tasks) {
+            if (!firstTask) sb.append(",")
+            firstTask = false
+            sb.append(taskToJson(t))
+        }
+        sb.append("]}")
+    }
+    sb.append("]}")
+    return sb.toString()
+}
+
+private fun taskToJson(t: Task): String {
+    return buildString {
+        append("{")
+        append("\"id\":").append(t.id).append(",")
+        append("\"title\":\"").append(jsonEscape(t.title)).append("\",")
+        append("\"body\":\"").append(jsonEscape(t.body)).append("\",")
+        append("\"status\":\"").append(t.status.name).append("\",")
+        append("\"dueDate\":\"").append(jsonEscape(t.dueDate)).append("\",")
+        append("\"participants\":\"").append(jsonEscape(t.participants)).append("\",")
+        append("\"hashtags\":\"").append(jsonEscape(t.hashtags)).append("\"")
+        append("}")
+    }
+}
+
+private fun jsonEscape(s: String): String {
+    val out = StringBuilder(s.length + 8)
+    for (ch in s) {
+        when (ch) {
+            '\\' -> out.append("\\\\")
+            '"'  -> out.append("\\\"")
+            '\n' -> out.append("\\n")
+            '\r' -> out.append("\\r")
+            '\t' -> out.append("\\t")
+            else -> out.append(ch)
+        }
+    }
+    return out.toString()
+}
+
+/* ======================== /edit parsing ======================== */
+
+private data class EditRequestParsed(
+    val boardKey: String,
+    val boardName: String,
+    val tasks: List<Task>
+)
+
+private fun parseEditRequest(jsonText: String): EditRequestParsed {
+    val rootAny = JsonParser(jsonText).parse()
+    val root = rootAny as? Map<*, *> ?: throw IllegalArgumentException("root_not_object")
+
+    val boardKey = root["boardKey"]?.toString() ?: "default"
+    val boardName = root["boardName"]?.toString() ?: ""
+
+    val tasksAny = root["tasks"]
+    val arr = (tasksAny as? List<*>) ?: emptyList<Any?>()
+
+    val tasks = arr.mapNotNull { item ->
         val m = item as? Map<*, *> ?: return@mapNotNull null
 
         val idAny = m["id"]
@@ -164,12 +281,14 @@ private fun parseTasksFromEditPayload(jsonText: String): List<Task> {
             is Number -> idAny.toInt()
             is String -> idAny.toIntOrNull()
             else -> null
-        } ?: throw IllegalArgumentException("task_id_missing")
+        } ?: return@mapNotNull null
 
         val title = m["title"]?.toString() ?: ""
         val body = m["body"]?.toString() ?: ""
+
         val statusStr = (m["status"]?.toString() ?: "TODO").trim()
         val status = runCatching { Status.valueOf(statusStr) }.getOrElse { Status.TODO }
+
         val dueDate = m["dueDate"]?.toString() ?: ""
         val participants = m["participants"]?.toString() ?: ""
         val hashtags = m["hashtags"]?.toString() ?: ""
@@ -185,32 +304,70 @@ private fun parseTasksFromEditPayload(jsonText: String): List<Task> {
         )
     }
 
-    // сохраняем порядок из payload: сначала по "order" (если есть), иначе как пришло
-    // (у тебя фронт присылает order)
-    val withOrder = arr.mapNotNull { item ->
-        val m = item as? Map<*, *> ?: return@mapNotNull null
-        val idAny = m["id"]
-        val id = when (idAny) {
-            is Number -> idAny.toInt()
-            is String -> idAny.toIntOrNull()
-            else -> null
-        } ?: return@mapNotNull null
-        val orderAny = m["order"]
-        val order = when (orderAny) {
-            is Number -> orderAny.toInt()
-            is String -> orderAny.toIntOrNull()
-            else -> null
-        } ?: 0
-        id to order
-    }.toMap()
-
-    return parsed.sortedWith(compareBy<Task> { it.status.ordinal }.thenBy { withOrder[it.id] ?: 0 })
+    return EditRequestParsed(boardKey, boardName, tasks)
 }
 
-/* -----------------------------
-   Мини JSON-парсер (без зависимостей)
-   Поддерживает: object/array/string/number/true/false/null
--------------------------------- */
+/* ======================== /state load ======================== */
+
+private fun loadStateFromFile(file: File): Map<String, Board> {
+    if (!file.exists()) return emptyMap()
+
+    val text = Files.readString(file.toPath(), StandardCharsets.UTF_8)
+    val rootAny = JsonParser(text).parse()
+    val root = rootAny as? Map<*, *> ?: return emptyMap()
+
+    val boardsArr = root["boards"] as? List<*> ?: return emptyMap()
+
+    val out = LinkedHashMap<String, Board>()
+    for (bAny in boardsArr) {
+        val bObj = bAny as? Map<*, *> ?: continue
+        val keyRaw = bObj["key"]?.toString() ?: continue
+        val key = if (keyRaw.isBlank()) continue else keyRaw
+        val name = bObj["name"]?.toString() ?: key
+        val tasksArr = bObj["tasks"] as? List<*> ?: emptyList<Any?>()
+
+        val parsedTasks = tasksArr.mapNotNull { tAny ->
+            val tm = tAny as? Map<*, *> ?: return@mapNotNull null
+            val idAny = tm["id"]
+            val id = when (idAny) {
+                is Number -> idAny.toInt()
+                is String -> idAny.toIntOrNull()
+                else -> null
+            } ?: return@mapNotNull null
+
+            val title = tm["title"]?.toString() ?: ""
+            val body = tm["body"]?.toString() ?: ""
+            val statusStr = (tm["status"]?.toString() ?: "TODO").trim()
+            val status = runCatching { Status.valueOf(statusStr) }.getOrElse { Status.TODO }
+            val dueDate = tm["dueDate"]?.toString() ?: ""
+            val participants = tm["participants"]?.toString() ?: ""
+            val hashtags = tm["hashtags"]?.toString() ?: ""
+
+            Task(id, title, body, status, dueDate, participants, hashtags)
+        }.toMutableList()
+
+        out[key] = Board(key, name, parsedTasks)
+    }
+
+    return out
+}
+
+/* ======================== HTTP helpers ======================== */
+
+private fun addCors(exchange: com.sun.net.httpserver.HttpExchange) {
+    exchange.responseHeaders.add("Access-Control-Allow-Origin", "*")
+    exchange.responseHeaders.add("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+    exchange.responseHeaders.add("Access-Control-Allow-Headers", "Content-Type")
+}
+
+private fun respondJson(exchange: com.sun.net.httpserver.HttpExchange, code: Int, json: String) {
+    val bytes = json.toByteArray(StandardCharsets.UTF_8)
+    exchange.responseHeaders.add("Content-Type", "application/json; charset=utf-8")
+    exchange.sendResponseHeaders(code, bytes.size.toLong())
+    exchange.responseBody.use { it.write(bytes) }
+}
+
+/* ======================== Minimal JSON parser (no deps) ======================== */
 
 private class JsonParser(private val s: String) {
     private var i = 0
