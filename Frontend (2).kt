@@ -315,6 +315,302 @@ fun buildPage(tasks: List<Task>): String {
                     background: #ddd;
                     margin: 4px 0;
                 }
+
+                /* ====== NEW THEME (как на макете) — только стили, элементы не трогаем ====== */
+                * { box-sizing: border-box; }
+
+                body{
+                  background: linear-gradient(180deg, #6f77ff 0%, #6a5be9 55%, #6a5be0 100%);
+                }
+
+                /* верхняя панель */
+                .topbar{
+                  height: 64px;
+                  background: #ffffff;
+                  border-bottom: none;
+                  box-shadow: 0 8px 24px rgba(18, 18, 40, 0.08);
+                  padding: 0 28px;
+                  position: sticky;
+                  top: 0;
+                  z-index: 50;
+                }
+
+                .profile-avatar{
+                  background: #eef0ff;
+                }
+
+                .topbar-menu{
+                  width: 100%;
+                  gap: 14px;
+                }
+
+                .topbar-menu-item{
+                  color: #7d8199;
+                  font-weight: 600;
+                  text-decoration: none !important;
+                }
+
+                /* “Доски” как кнопка справа */
+                #boards-toggle{
+                  margin-left: auto;
+                  background: #3d3bf2;
+                  color: #ffffff;
+                  padding: 10px 14px;
+                  border-radius: 10px;
+                  box-shadow: 0 10px 20px rgba(61, 59, 242, 0.25);
+                }
+                #boards-toggle:hover{
+                  filter: brightness(0.97);
+                }
+
+                .app{
+                  height: calc(100vh - 64px);
+                }
+
+                .board{
+                  background: transparent;
+                  border-right: none;
+                  padding: 26px 30px 30px;
+                }
+
+                .board-header{
+                  color: #ffffff;
+                  font-size: 30px;
+                  font-weight: 800;
+                  margin: 10px 0 22px;
+                }
+
+                .columns{
+                  gap: 22px;
+                  height: auto;
+                  min-height: calc(100vh - 64px - 120px);
+                  align-items: stretch;
+                }
+
+                .column{
+                  background: #ffffff;
+                  border: none;
+                  border-radius: 18px;
+                  padding: 0;
+                  overflow: hidden;
+                  box-shadow: 0 18px 44px rgba(15, 18, 30, 0.20);
+                  display: flex;
+                  flex-direction: column;
+                }
+
+                /* акцент по статусу (через data-status на существующей колонке) */
+                .column[data-status="TODO"] { --accent: #ff9f2d; }
+                .column[data-status="IN_PROGRESS"] { --accent: #2f6dff; }
+                .column[data-status="REVIEW"] { --accent: #7a5cff; }
+                .column[data-status="DONE"] { --accent: #13a96d; }
+
+                .column-title{
+                  font-weight: 800;
+                  font-size: 20px;
+                  text-align: left;
+                  padding: 18px 20px 18px;
+                  display: flex;
+                  align-items: center;
+                  gap: 12px;
+                  position: relative;
+                  color: var(--accent, #2b2f45);
+                  margin-bottom: 0;
+                }
+
+                /* линия под заголовком */
+                .column-title::before{
+                  content: "";
+                  position: absolute;
+                  left: 20px;
+                  right: 20px;
+                  bottom: 0;
+                  height: 3px;
+                  background: var(--accent, #d8dbe8);
+                  border-radius: 999px;
+                  opacity: 0.9;
+                }
+
+                /* круглый счетчик */
+                .column-title::after{
+                  content: attr(data-count);
+                  margin-left: auto;
+                  min-width: 22px;
+                  height: 22px;
+                  padding: 0 6px;
+                  border-radius: 999px;
+                  background: #f0f2ff;
+                  color: var(--accent, #6b6f8b);
+                  display: inline-flex;
+                  align-items: center;
+                  justify-content: center;
+                  font-size: 12px;
+                  font-weight: 800;
+                }
+
+                .column-body{
+                  border-top: none;
+                  padding: 18px;
+                  flex: 1;
+                  min-height: 260px;
+                  display: flex;
+                  flex-direction: column;
+                  gap: 12px;
+                }
+
+                .card-stub{
+                  width: 100%;
+                  margin: 0;
+                  border-radius: 14px;
+                  border: 1px solid rgba(18, 20, 30, 0.06);
+                  box-shadow: 0 10px 22px rgba(12, 14, 25, 0.10);
+                  padding: 10px 12px;
+                  transition: transform .08s ease;
+                }
+                .card-stub:hover{ transform: translateY(-1px); }
+
+                .card-stub.yellow{ background: #fff6d7; }
+                .card-stub.green{ background: #dff6e5; }
+
+                .card-title{ font-size: 13px; }
+                .card-tags{ color: #6f748c; }
+                .card-date{ color: #6f748c; }
+
+                /* кнопка добавления снизу */
+                .column-add{
+                  order: 9999;
+                  margin-top: auto;
+                  width: 100%;
+                  height: 44px;
+                  border-radius: 12px;
+                  border: 2px dashed rgba(120, 130, 175, 0.35);
+                  background: rgba(240, 242, 255, 0.75);
+                  opacity: 1;
+                  font-size: 0;
+                  color: transparent;
+                }
+                .column-add::before{
+                  content: "+  Добавить задачу";
+                  font-size: 14px;
+                  color: #6b6f8b;
+                  font-weight: 700;
+                }
+                .column-add:hover{
+                  background: rgba(240, 242, 255, 0.95);
+                  border-color: rgba(120, 130, 175, 0.55);
+                }
+
+                /* правая панель */
+                .details{
+                  background: transparent;
+                }
+                .details-card{
+                  background: #ffffff;
+                  border-radius: 18px;
+                  box-shadow: 0 18px 44px rgba(15, 18, 30, 0.18);
+                }
+                .details-close-btn{
+                  background: #f2f4ff;
+                  width: 34px;
+                  height: 34px;
+                  border-radius: 10px;
+                }
+
+                /* dropdown досок */
+                .boards-dropdown{
+                  border-radius: 14px;
+                  border: 1px solid rgba(18, 20, 30, 0.08);
+                  box-shadow: 0 18px 44px rgba(15, 18, 30, 0.18);
+                  overflow: hidden;
+                }
+                .card-stub[data-status="TODO"]        { --card-accent: #ff9f2d; --card-bg: rgba(255, 246, 215, 0.92); }
+                .card-stub[data-status="IN_PROGRESS"] { --card-accent: #2f6dff; --card-bg: rgba(232, 240, 255, 0.92); }
+                .card-stub[data-status="REVIEW"]      { --card-accent: #7a5cff; --card-bg: rgba(238, 234, 255, 0.92); }
+                .card-stub[data-status="DONE"]        { --card-accent: #13a96d; --card-bg: rgba(223, 246, 229, 0.92); }
+
+                /* База карточки */
+                .card-stub{
+                  position: relative;
+                  overflow: hidden;
+                  width: 100%;
+                  margin: 0;
+                  border-radius: 14px;
+                  background: var(--card-bg, rgba(255,255,255,0.92));
+                  border: 1px solid rgba(18, 20, 30, 0.06);
+                  box-shadow: 0 10px 22px rgba(12, 14, 25, 0.10);
+                  padding: 12px 12px 12px 16px;
+                  cursor: pointer;
+                  transition: transform .08s ease, box-shadow .12s ease;
+                }
+
+                /* На всякий случай “переопределяем” старые классы yellow/green */
+                .card-stub.yellow,
+                .card-stub.green{
+                  background: var(--card-bg, rgba(255,255,255,0.92));
+                }
+
+                /* Левая цветная полоса статуса */
+                .card-stub::before{
+                  content: "";
+                  position: absolute;
+                  left: 0;
+                  top: 0;
+                  bottom: 0;
+                  width: 6px;
+                  background: var(--card-accent, #2f6dff);
+                  border-radius: 14px 0 0 14px;
+                }
+
+                /* Тонкая верхняя “подсветка” */
+                .card-stub::after{
+                  content: "";
+                  position: absolute;
+                  left: 0;
+                  right: 0;
+                  top: 0;
+                  height: 3px;
+                  background: linear-gradient(90deg, var(--card-accent, #2f6dff), transparent 70%);
+                  opacity: 0.65;
+                }
+
+                /* Мелкий “статус-точка” перед заголовком */
+                .card-stub .card-title{
+                  font-size: 13px;
+                  font-weight: 800;
+                  color: #1b1e2f;
+                  margin-bottom: 6px;
+                  display: flex;
+                  align-items: center;
+                  gap: 8px;
+                }
+                .card-stub .card-title::before{
+                  content: "";
+                  width: 8px;
+                  height: 8px;
+                  border-radius: 999px;
+                  background: var(--card-accent, #2f6dff);
+                  box-shadow: 0 0 0 4px rgba(255,255,255,0.7);
+                }
+
+                /* Теги и дата — спокойные */
+                .card-stub .card-tags{
+                  font-size: 12px;
+                  color: #6f748c;
+                  font-weight: 700;
+                  margin-top: 2px;
+                }
+                .card-stub .card-date{
+                  font-size: 12px;
+                  color: #6f748c;
+                  text-align: right;
+                  margin-top: 10px;
+                  font-weight: 700;
+                }
+
+                /* Hover */
+                .card-stub:hover{
+                  transform: translateY(-1px);
+                  box-shadow: 0 14px 28px rgba(12, 14, 25, 0.14);
+                }
             </style>
         </head>
         <body>
@@ -540,6 +836,7 @@ fun buildPage(tasks: List<Task>): String {
 
                         var mo = new MutationObserver(function () {
                             scheduleSync("dom_mutation");
+                            updateColumnCounts();
                         });
 
                         mo.observe(boardEl, {
@@ -549,6 +846,17 @@ fun buildPage(tasks: List<Task>): String {
                             attributeFilter: [
                                 "data-title","data-body","data-status","data-due","data-participants","data-tags","data-id","class"
                             ]
+                        });
+                    }
+
+                    // --- счетчики в заголовках колонок ---
+                    function updateColumnCounts() {
+                        document.querySelectorAll(".column").forEach(function (col) {
+                            var title = col.querySelector(".column-title");
+                            var body = col.querySelector(".column-body");
+                            if (!title || !body) return;
+                            var count = body.querySelectorAll(".card-stub").length;
+                            title.setAttribute("data-count", String(count));
                         });
                     }
 
@@ -693,6 +1001,7 @@ fun buildPage(tasks: List<Task>): String {
                                 body.appendChild(card);
 
                                 scheduleSync("add_card");
+                                updateColumnCounts();
                             });
                         });
                     }
@@ -709,6 +1018,7 @@ fun buildPage(tasks: List<Task>): String {
                         createAddButtonsForAllColumns();
                         attachAddButtons();
                         attachCardHandlers();
+                        updateColumnCounts();
                     }
 
                     // начальная инициализация
@@ -764,6 +1074,7 @@ fun buildPage(tasks: List<Task>): String {
                             currentCard = null;
 
                             scheduleSync("delete_card");
+                            updateColumnCounts();
                         }
 
                         menu.style.display = "none";
@@ -791,6 +1102,7 @@ fun buildPage(tasks: List<Task>): String {
                             setDetailsColorFromCard(currentDetailsCard);
 
                             scheduleSync("status_change");
+                            updateColumnCounts();
                         });
                     });
 
@@ -821,6 +1133,7 @@ fun buildPage(tasks: List<Task>): String {
 
                         // отправим состояние новой активной доски
                         scheduleSync("switch_board");
+                        updateColumnCounts();
                     }
 
                     if (boardsToggle && boardsDropdown) {
@@ -868,6 +1181,7 @@ fun buildPage(tasks: List<Task>): String {
 
                             switchBoard(key);
                             boardsDropdown.style.display = "none";
+                            updateColumnCounts();
                         });
                     }
                 });
@@ -884,13 +1198,12 @@ private fun buildColumn(
     status: Status,
     tasks: List<Task>
 ): String {
-    val cardsHtml = tasks
-        .filter { it.status == status }
-        .joinToString("\n") { buildCardStub(it) }
+    val cards = tasks.filter { it.status == status }
+    val cardsHtml = cards.joinToString("\n") { buildCardStub(it) }
 
     return """
-        <div class="column">
-            <div class="column-title">$title</div>
+        <div class="column" data-status="${status.name}">
+            <div class="column-title" data-count="${cards.size}">$title</div>
             <div class="column-body" data-status="${status.name}">
                 $cardsHtml
             </div>
